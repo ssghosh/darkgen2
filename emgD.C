@@ -63,6 +63,8 @@ struct MyPlots
     TH1 *fFatJetPT;
     TH1 *fFatJetTau21;
     TH1 *fFatJetTau32;
+    TH1 *fLeadFatJetTau21;
+    TH1 *fLeadFatJetTau32;
     TH1 *fFatJetMSD;
     TH1 *fFatJetMPR;
     TH1 *fnFatJet;
@@ -225,17 +227,27 @@ void BookHistograms(ExRootResult *result, MyPlots *plots)
 
     plots->fFatJetPT = result->AddHist1D(
             "fatjet_pt", "fat jet P_{T}",
-            "fat jet P_{T}, GeV/c", "number of jet",
+            "fat jet P_{T}, GeV/c", "number of jets",
             100, 0.0, 1000.0);
 
     plots->fFatJetTau21 = result->AddHist1D(
             "fatjet_tau21", "#tau_{21}",
-            "#tau_{21}", "number of jet",
+            "#tau_{21}", "number of jets",
             50, 0.0, 1.0);
 
     plots->fFatJetTau32 = result->AddHist1D(
             "fatjet_tau32", "#tau_{32}",
-            "#tau_{32}", "number of jet",
+            "#tau_{32}", "number of jets",
+            50, 0.0, 1.0);
+    
+    plots->fLeadFatJetTau32 = result->AddHist1D(
+            "lead_fatjet_tau32", "#tau_{32}",
+            "#tau_{32}", "number of jets",
+            50, 0.0, 1.0);
+
+    plots->fLeadFatJetTau21 = result->AddHist1D(
+            "lead_fatjet_tau21", "#tau_{21}",
+            "#tau_{21}", "number of jets",
             50, 0.0, 1.0);
 
     plots->fFatJetMSD = result->AddHist1D(
@@ -543,6 +555,12 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         // plots for fat jets
         int nfatjet = branchFatJet->GetEntriesFast();
         plots->fnFatJet->Fill(nfatjet);
+        // lead jet tau21 and tau32
+        if (nfatjet > 0) {
+            jet = (Jet*) branchFatJet->At(0);
+            plots->fLeadFatJetTau21->Fill(jet->Tau[1]>0 ? jet->Tau[2]/jet->Tau[1] : 0.0);
+            plots->fLeadFatJetTau32->Fill(jet->Tau[2]>0 ? jet->Tau[3]/jet->Tau[2] : 0.0);
+        }
         for(int i=0;i<nfatjet;i++) {
             jet = (Jet*) branchFatJet->At(i);
             plots->fFatJetPT->Fill(jet->PT);
