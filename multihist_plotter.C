@@ -13,7 +13,7 @@ void multihist_plotter(char* atitle, char* sigfile, std::vector<char*> sighnames
  
     // option to scale to cross section (rather than just 1)
     // along with xs and lumi values to use to do so
-    int scaletoxs = 1;
+    int scaletoxs = 0;
     float ttbarxs = 888000.; // in fb
     float darkxs = 18.45402; // in fb
     float lumi = 100.; // fb^-1
@@ -76,16 +76,16 @@ void multihist_plotter(char* atitle, char* sigfile, std::vector<char*> sighnames
     for (int i = 0; i < sighnames.size(); i++) {
         signal_hists.push_back(static_cast<TH1F*>(f1->Get(sighnames[i])->Clone()));
         signal_hists[i]->SetDirectory(0); 
-        double integral = signal_hists[i]->Integral();
-        std::cout << "Integral is " << integral << std::endl;
+        double sig_integral = signal_hists[i]->Integral();
+        std::cout << "Integral is " << sig_integral << std::endl;
         if (scaletoxs) {
             std::cout << "scaling to xs" << std::endl;
-            signal_hists[i]->Scale((darkxs*lumi)/integral);
+            signal_hists[i]->Scale((darkxs*lumi)/sig_integral);
             maxima.push_back(signal_hists[i]->GetMaximum());
             //std::cout << "Maximum is " << signal_hists[i]->GetMaximum() << std::endl;}
         }
         else { 
-            signal_hists[i]->Scale(1./integral);
+            signal_hists[i]->Scale(1./sig_integral);
             maxima.push_back(signal_hists[i]->GetMaximum());
             //std::cout << "Maximum is " << signal_hists[i]->GetMaximum() << std::endl;}
         }
@@ -96,18 +96,18 @@ void multihist_plotter(char* atitle, char* sigfile, std::vector<char*> sighnames
     std::cout<<"getting bkg hists"<<std::endl;
     std::vector<TH1F*> bkg_hists;
     for (int i = 0; i < bkghnames.size(); i++) {
-        bkg_hists.push_back(static_cast<TH1F*>(f1->Get(bkghnames[i])->Clone()));
+        bkg_hists.push_back(static_cast<TH1F*>(f2->Get(bkghnames[i])->Clone()));
         bkg_hists[i]->SetDirectory(0); 
-        double integral = bkg_hists[i]->Integral();
-        std::cout << "Integral is " << integral << std::endl;
+        double bkg_integral = bkg_hists[i]->Integral();
+        std::cout << "Integral is " << bkg_integral << std::endl;
         if (scaletoxs) {
             std::cout << "scaling to xs" << std::endl;
-            bkg_hists[i]->Scale((darkxs*lumi)/integral);
+            bkg_hists[i]->Scale((darkxs*lumi)/bkg_integral);
             maxima.push_back(bkg_hists[i]->GetMaximum());
             //std::cout << "Maximum is " << bkg_hists[i]->GetMaximum() << std::endl;}
         }
         else { 
-            bkg_hists[i]->Scale(1./integral);
+            bkg_hists[i]->Scale(1./bkg_integral);
             maxima.push_back(bkg_hists[i]->GetMaximum());
             //std::cout << "Maximum is " << bkg_hists[i]->GetMaximum() << std::endl;}
         }
