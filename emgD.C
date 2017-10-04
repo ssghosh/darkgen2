@@ -23,12 +23,14 @@ R__LOAD_LIBRARY(libDelphes)
     float ConeSize=0.4;
     float D0SigCut=3;
     float D0Cut=0.2;
+    float LepPtCut = 30;
+    float LepEtaCut = 2.1;
     float HTCUT = 1000.;
-    float PT1CUT = 400;
+    float PT1CUT = 30;
     float PT2CUT = 200;
     float PT3CUT = 200;
     float PT4CUT = 100;
-    float JETETACUT = 2;
+    float JETETACUT = 2.5;
     float ALPHAMAXCUT = 0.1;
 
     std::ofstream myfile;
@@ -328,7 +330,7 @@ void BookHistograms(ExRootResult *result, MyPlots *plots)
 
     // cut flow
     plots->Count = result->AddHist1D(
-            "Count", "Count","cut flow","number of events",3,0,3);
+            "Count", "Count","cut flow","number of events",0,0,0);
     plots->Count->SetStats(0);
     plots->Count->SetCanExtend(TH1::kAllAxes);
 
@@ -408,6 +410,9 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
 
     int ijloop = allEntries;
     if(idbg>0) ijloop = 10;
+    Int_t non_pto_ev = 0;
+    Int_t non_pto_muv = 0;
+    Int_t non_pto_jetv = 0;
     for(entry = 0; entry < ijloop; ++entry)
     {
         if(idbg>0) myfile<<std::endl;
@@ -588,6 +593,8 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         vector<bool> abq(njet);
         if(idbg>0) myfile<<" number of jets is "<<njet<<std::endl;
         int nbjets = 0;
+        int nelectrons = 0;
+        int nmuons = 0;
         int ndarkjets = 0;
 
         for(int i=0;i<njet;i++) {
@@ -697,7 +704,6 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
 
             if(idbg>0) myfile<<"alpha max is "<<alphaMax[i]<<std::endl;
         } // end loop over all jets
-        plots->fnBJet->Fill(nbjets);
 
         // Analyse missing ET
         if(branchMissingET->GetEntriesFast() > 0)
@@ -720,6 +726,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         {
             electron = (Electron*) branchElectron->At(i);
             plots->felectronPT->Fill(electron->PT);
+            nelectrons++;
         }
 
 
@@ -728,6 +735,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         {
             muon = (Muon*) branchMuon->At(i);
             plots->fmuonPT->Fill(muon->PT);
+            nmuons++;
         }
 
 
@@ -753,25 +761,44 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
 
         // see if passes cuts
         bool Pnjet=false;
+        bool Pnbjet=false;
+        bool Pnlepton=false;
+        bool Pleppt=false;
         bool Pht=false;
         bool Ppt1=false;
         bool Ppt2=false;
         bool Ppt3=false;
         bool Ppt4=false;
         bool Pam=false;
-        if(njet>3) Pnjet=true;
-        if(njet>3) {
-            if((ht->HT)>HTCUT) Pht=true;
+        if(njet>=6) Pnjet=true;
+        if(nbjets>=1) Pnbjet=true;
+        if((nelectrons+nmuons)>=1) Pnlepton=true;
+        if(njet>=6) {
             jet = (Jet*) branchJet->At(0);
             if(((jet->PT)>PT1CUT)&&goodjet[0]) Ppt1=true;
-            jet = (Jet*) branchJet->At(1);
-            if(((jet->PT)>PT2CUT)&&goodjet[1]) Ppt2=true;
-            jet = (Jet*) branchJet->At(2);
-            if(((jet->PT)>PT3CUT)&&goodjet[2]) Ppt3=true;
-            jet = (Jet*) branchJet->At(3);
-            if(((jet->PT)>PT4CUT)&&goodjet[3]) Ppt4=true;
-            if(nalpha>1) Pam=true;
+            //jet = (Jet*) branchJet->At(1);
+            //if(((jet->PT)>PT2CUT)&&goodjet[1]) Ppt2=true;
+            //jet = (Jet*) branchJet->At(2);
+            //if(((jet->PT)>PT3CUT)&&goodjet[2]) Ppt3=true;
+            //jet = (Jet*) branchJet->At(3);
+            //if(((jet->PT)>PT4CUT)&&goodjet[3]) Ppt4=true;
+            //if(nalpha>1) Pam=true;
         }
+        float elpt = 0;
+        float eleta = 0;
+        float mupt = 0;
+        float mueta = 0;
+        if(nelectrons>=1) {
+            electron = (Electron*) branchElectron->At(0);
+            elpt = electron->PT;
+            eleta = electron->Eta;}
+        if(nmuons>=1) {
+            muon = (Muon*) branchMuon->At(0);
+            mupt = muon->PT;
+            mueta = muon->Eta;}
+        if((elpt >= LepPtCut && eleta <= LepEtaCut) || (mupt >= LepPtCut && mueta <= LepEtaCut)) Pleppt=true;
+            
+
 
 
         //n-1 plots
@@ -797,24 +824,18 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
 
         plots->Count->Fill("All",1);
         if(Pnjet) {
-            plots->Count->Fill("4 jets",1);
-            if(Pht) {
-                plots->Count->Fill("HT",1);
+            plots->Count->Fill("6 jets",1);
+            if(Pnbjet) {
+                plots->Count->Fill("1 bjet",1);
                 if(Ppt1) {
-                    plots->Count->Fill("PT1CUT",1);
-                    if(Ppt2) {
-                        plots->Count->Fill("PT2CUT",1);
-                        if(Ppt3) {
-                            plots->Count->Fill("PT3CUT",1);
-                            if(Ppt4) {
-                                plots->Count->Fill("PT4CUT",1);
-                                if(Pam) {
-                                    plots->Count->Fill("AM",1);
-                                    if(idbg>0) myfile<<" event passes all cuts"<<std::endl;
-                                }
-                            }}}}
-            }
-        }
+                    plots->Count->Fill("Jet pT",1);
+                    if(Pnlepton) {
+                        plots->Count->Fill("1 lepton",1);
+                        if(Pleppt) {
+                            plots->Count->Fill("Lep pT",1);
+                        }}}}}
+    // end main loop
+    }
 
 
 
@@ -823,9 +844,6 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
 
 
         //
-
-
-    }
 }
 
 //------------------------------------------------------------------------------
