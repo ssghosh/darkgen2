@@ -23,10 +23,19 @@ R__LOAD_LIBRARY(libDelphes)
     float ConeSize=0.4;
     float D0SigCut=3;
     float D0Cut=0.2;
-    float LepPtCut = 21;
-    float LepEtaCut = 2.4;
+    float MuPtCut = 25;
+    float MuEtaCut = 2.1;
+    float MuVetoMuPt = 10;
+    float MuVetoMuEta = 2.5;
+    float MuVetoElPt = 25;
+    float MuVetoElEta = 2.5;
+    float ElPtCut = 30;
+    float ElEtaCut = 2.5;
+    float ElVetoElPt = 30;
+    float ElVetoElEta = 2.5;
     float HTCUT = 1000.;
-    float JETPTCUT = 30;
+    float JETPTCUT = 40;
+    float njetscut = 4;
     float JetLepSepCut = 0.4; // minimum jet-leading lepton deltaR separation
     float PT2CUT = 200;
     float PT3CUT = 200;
@@ -54,6 +63,8 @@ R__LOAD_LIBRARY(libDelphes)
 struct MyPlots
 {
     TH1 *Count;
+    TH1 *muCount;
+    TH1 *elCount;
     TH1 *fJetPT;
     TH1 *fJetAM;
     TH1 *fDarkJetAM;
@@ -329,6 +340,16 @@ void BookHistograms(ExRootResult *result, MyPlots *plots)
             50, 0.0, 1);
 
 
+    // muon + jets cut flow
+    plots->muCount = result->AddHist1D(
+            "MuCount","MuCount","cut flow",0,0,0);
+    plots->muCount->SetStats(0);
+    plots->muCount->SetCanExtend(TH1::kAllAxes);
+    // electrons + jets cut flow
+    plots->elCount = result->AddHist1D(
+            "ElCount","ElCount","cut flow",0,0,0);
+    plots->elCount->SetStats(0);
+    plots->elCount->SetCanExtend(TH1::kAllAxes);
     // cut flow
     plots->Count = result->AddHist1D(
             "Count", "Count","cut flow","number of events",0,0,0);
@@ -413,6 +434,10 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
     int n_njets=0;
     int n_nbjets=0;
     int n_jetpt=0;
+    int n_muj=0;
+    int n_nomuveto=0;
+    int n_noelveto=0;
+    int n_elj=0;
     int n_nlepton=0;
     int n_leppt=0;
     int n_jetlepsep=0;
@@ -599,6 +624,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         vector<bool> adkq(njet);
         vector<bool> adq(njet);
         vector<bool> abq(njet);
+        vector<bool> bjet(njet);
         if(idbg>0) myfile<<" number of jets is "<<njet<<std::endl;
         int nbjets = 0;
         int nelectrons = 0;
@@ -613,7 +639,8 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
             // use 0 for loose, 1 for medium, and 2 for tight
             if (isBJet) {
                 nbjets++;
-                plots->fBJetPT->Fill(jet->PT); }
+                plots->fBJetPT->Fill(jet->PT); 
+                bjet[i] = true; }
             abq[i] = isBJet;
 
             if(idbg>0) myfile<<"jet "<<i<<"  with pt, eta, phi of "<<jet->PT<<" "<<jet->Eta<<" "<<jet->Phi<<std::endl;
@@ -770,15 +797,16 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         // see if passes cuts
         bool Pnjet=false;
         bool Pnbjet=false;
-        bool Pnlepton=false;
-        bool Pleppt=false;
+        bool Pnmuon=false;
+        bool Pnel=false;
+        bool Pmupt=false;
+        bool Pmueta=false;
+        bool Pelpt=false;
+        bool Peleta=false;
+        bool VetoMu=false; // are we vetoing this mu event?
+        bool VetoEl=false; // are we vetoing this electron event?
         bool Pht=false;
-        bool Ppt1=false;
-        bool Ppt2=false;
-        bool Ppt3=false;
-        bool Ppt4=false;
-        bool Ppt5=false;
-        bool Ppt6=false;
+        vector<bool> Ppt(njetscut,false);
         bool Pam=false;
         bool PJetLepSep1=false;
         bool PJetLepSep2=false;
@@ -786,22 +814,42 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         bool PJetLepSep4=false;
         bool PJetLepSep5=false;
         bool PJetLepSep6=false;
-        if(njet>=6) Pnjet=true;
-        if(nbjets>=1) Pnbjet=true;
-        if((nelectrons+nmuons)>=1) Pnlepton=true;
-        if(njet>=6) {
-            jet = (Jet*) branchJet->At(0);
-            if(((jet->PT)>JETPTCUT)&&goodjet[0]) Ppt1=true;
-            jet = (Jet*) branchJet->At(1);
-            if(((jet->PT)>JETPTCUT)&&goodjet[1]) Ppt2=true;
-            jet = (Jet*) branchJet->At(2);
-            if(((jet->PT)>JETPTCUT)&&goodjet[2]) Ppt3=true;
-            jet = (Jet*) branchJet->At(3);
-            if(((jet->PT)>JETPTCUT)&&goodjet[3]) Ppt4=true;
-            jet = (Jet*) branchJet->At(4);
-            if(((jet->PT)>JETPTCUT)&&goodjet[4]) Ppt5=true;
-            jet = (Jet*) branchJet->At(5);
-            if(((jet->PT)>JETPTCUT)&&goodjet[5]) Ppt6=true;
+        if(njet>=njetscut) Pnjet=true;
+        //if(nbjets>=1) Pnbjet=true;
+        // test for muon + jets cuts
+        if(nmuons > 0) {
+            Muon *mu = (Muon*) branchMuon->At(0);
+            if (mu->PT > MuPtCut) Pmupt = true;
+            if (mu->Eta < MuEtaCut) Pmueta = true;
+            if (nmuons > 1) {
+                Muon *mu2 = (Muon*) branchMuon->At(1);
+                if (mu2->PT > MuVetoMuPt && fabs(mu2->Eta) < MuVetoMuEta) VetoMu = true;
+            }
+            if (nelectrons > 0) {
+                Electron *el = (Electron*) branchElectron->At(0);
+                if (electron->PT > MuVetoElPt && fabs(electron->Eta) < MuVetoElEta) VetoMu = true;
+            }
+        }
+
+        if(nelectrons > 0) {
+            Electron *el = (Electron*) branchElectron->At(0);
+            if (el->PT > ElPtCut) Pelpt = true;
+            if (el->Eta < ElEtaCut) Peleta = true;
+            if (nelectrons > 1) {
+                Electron *el2 = (Electron*) branchElectron->At(1);
+                if (el2->PT > ElVetoElPt && fabs(el2->Eta) < ElVetoElEta) VetoEl = true;
+            }
+        }
+        if(Pnjet) {
+            for (int i=0;i<njetscut;i++) {
+                jet = (Jet*) branchJet->At(i);
+                if(((jet->PT)>JETPTCUT)&&goodjet[i]) {
+                    Ppt[i]=true;
+                }
+                if(bjet[i]) {
+                    Pnbjet=true;
+                }
+            }
         }
         float elpt = 0;
         float eleta = 0;
@@ -817,90 +865,101 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
             muon = (Muon*) branchMuon->At(0);
             mupt = muon->PT;
             mueta = muon->Eta;}
-        if((elpt >= LepPtCut && eleta <= LepEtaCut) || (mupt >= LepPtCut && mueta <= LepEtaCut)) Pleppt=true;
-        if(Pleppt && Pnjet){
-            // take the highest pT lepton
-            float lepeta = 0;
-            float lepphi = 0;
+        //if((elpt >= LepPtCut && eleta <= LepEtaCut) || (mupt >= LepPtCut && mueta <= LepEtaCut)) Pleppt=true;
+        //if(Pleppt && Pnjet){
+        //    // take the highest pT lepton
+        //    float lepeta = 0;
+        //    float lepphi = 0;
 
-            if (elpt > mupt) {
-                lepeta = eleta;
-                lepphi = elphi;
-            }
-            else {
-                lepeta = mueta;
-                lepphi = muphi;
-            }
-               
-            // and check that all jets have a minimum deltaR from that lepton 
-            jet = (Jet*) branchJet->At(0);
-            if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep1=true;
-            jet = (Jet*) branchJet->At(1);
-            if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep2=true;
-            jet = (Jet*) branchJet->At(2);
-            if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep3=true;
-            jet = (Jet*) branchJet->At(3);
-            if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep4=true;
-            jet = (Jet*) branchJet->At(4);
-            if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep5=true;
-            jet = (Jet*) branchJet->At(5);
-            if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep6=true;
-        }
+        //    if (elpt > mupt) {
+        //        lepeta = eleta;
+        //        lepphi = elphi;
+        //    }
+        //    else {
+        //        lepeta = mueta;
+        //        lepphi = muphi;
+        //    }
+        //       
+        //    // and check that all jets have a minimum deltaR from that lepton 
+        //    //jet = (Jet*) branchJet->At(0);
+        //    //if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep1=true;
+        //    //jet = (Jet*) branchJet->At(1);
+        //    //if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep2=true;
+        //    //jet = (Jet*) branchJet->At(2);
+        //    //if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep3=true;
+        //    //jet = (Jet*) branchJet->At(3);
+        //    //if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep4=true;
+        //    //jet = (Jet*) branchJet->At(4);
+        //    //if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep5=true;
+        //    //jet = (Jet*) branchJet->At(5);
+        //    //if (DeltaR(jet->Eta,jet->Phi,lepeta,lepphi)>JetLepSepCut) PJetLepSep6=true;
+        //}
 
         //n-1 plots
 
-        if(Pnjet&&Ppt1&&Ppt2&&Ppt3&&Ppt4&&Pam) plots->fhtnm1->Fill(ht->HT);
-        jet = (Jet*) branchJet->At(0);
-        if(Pnjet&&Pht&&Ppt2&&Ppt3&&Ppt4&&Pam) plots->fjpt1nm1->Fill(jet->PT);
-        jet = (Jet*) branchJet->At(1);
-        if(Pnjet&&Pht&&Ppt1&&Ppt3&&Ppt4&&Pam) plots->fjpt2nm1->Fill(jet->PT);
-        jet = (Jet*) branchJet->At(2);
-        if(Pnjet&&Pht&&Ppt1&&Ppt2&&Ppt4&&Pam) plots->fjpt3nm1->Fill(jet->PT);
-        jet = (Jet*) branchJet->At(3);
-        if(Pnjet&&Pht&&Ppt1&&Ppt2&&Ppt3&&Pam) plots->fjpt4nm1->Fill(jet->PT);
+        //if(Pnjet&&Ppt1&&Ppt2&&Ppt3&&Ppt4&&Pam) plots->fhtnm1->Fill(ht->HT);
+        //jet = (Jet*) branchJet->At(0);
+        //if(Pnjet&&Pht&&Ppt2&&Ppt3&&Ppt4&&Pam) plots->fjpt1nm1->Fill(jet->PT);
+        //jet = (Jet*) branchJet->At(1);
+        //if(Pnjet&&Pht&&Ppt1&&Ppt3&&Ppt4&&Pam) plots->fjpt2nm1->Fill(jet->PT);
+        //jet = (Jet*) branchJet->At(2);
+        //if(Pnjet&&Pht&&Ppt1&&Ppt2&&Ppt4&&Pam) plots->fjpt3nm1->Fill(jet->PT);
+        //jet = (Jet*) branchJet->At(3);
+        //if(Pnjet&&Pht&&Ppt1&&Ppt2&&Ppt3&&Pam) plots->fjpt4nm1->Fill(jet->PT);
 
-        if(Pnjet&&Pht&&Ppt1&&Ppt2&&Ppt3&&Ppt4) {
-            plots->famnm1->Fill(alphaMax[0]);
-            plots->famnm1->Fill(alphaMax[1]);
-            plots->famnm1->Fill(alphaMax[2]);
-            plots->famnm1->Fill(alphaMax[3]);
-        }
+        //if(Pnjet&&Pht&&Ppt1&&Ppt2&&Ppt3&&Ppt4) {
+        //    plots->famnm1->Fill(alphaMax[0]);
+        //    plots->famnm1->Fill(alphaMax[1]);
+        //    plots->famnm1->Fill(alphaMax[2]);
+        //    plots->famnm1->Fill(alphaMax[3]);
+        //}
 
 
 
-        plots->Count->Fill("All",1);
+        // muon + jets cut flow
+        plots->muCount->Fill("All",1);
         n_all++;
         if(Pnjet) {
             n_njets++;
-            plots->Count->Fill("6 jets",1);
+            plots->muCount->Fill("4 jets",1);
             if(Pnbjet) {
                 n_nbjets++;
-                plots->Count->Fill("1 bjet",1);
-                if(Ppt1 && Ppt2 && Ppt3 && Ppt4 && Ppt5 && Ppt6) {
+                plots->muCount->Fill("1 bjet",1);
+                if(std::all_of(Ppt.cbegin(),Ppt.cend(),[](bool i){return i;})) {
                     n_jetpt++;
-                    plots->Count->Fill("Jet pT",1);
-                    if(Pnlepton) {
+                    plots->muCount->Fill("Jet pT",1);
+                    if(Pmupt && Pmueta && !VetoMu) {
+                        n_muj++;
                         n_nlepton++;
-                        plots->Count->Fill("1 lepton",1);
-                        if(Pleppt) {
-                            n_leppt++;
-                            plots->Count->Fill("Lep pT",1);
-                            if(PJetLepSep1&&PJetLepSep2&&PJetLepSep3&&PJetLepSep4&&PJetLepSep5&&PJetLepSep6) {
-                                n_jetlepsep++;
-                                plots->Count->Fill("Lep-jet separation", 1); }
-                        }}}}}
+                        plots->muCount->Fill("Mu pT/eta, veto",1);
+                        }}}}
+                        //
+        // electron + jets cut flow
+        plots->elCount->Fill("All",1);
+        if(Pnjet) {
+            plots->elCount->Fill("4 jets",1);
+            if(Pnbjet) {
+                plots->elCount->Fill("1 bjet",1);
+                if(std::all_of(Ppt.cbegin(),Ppt.cend(),[](bool i){return i;})) {
+                    plots->elCount->Fill("Jet pT",1);
+                    if(Pelpt && Peleta && !VetoEl) {
+                        n_elj++;
+                        n_nlepton++;
+                        plots->elCount->Fill("e pT/eta, veto",1);
+                        }}}}
     // end main loop
     }
 
     // print cut flow:
     std::cout << "=== Cut flow ===" << std::endl;
     std::cout << "Total events: " << n_all << std::endl;
-    std::cout << "6 jets: " << n_njets << std::endl;
+    std::cout << "4 jets: " << n_njets << std::endl;
     std::cout << "1 bjet: " << n_nbjets << std::endl;
-    std::cout << "Jet pT (" << JETPTCUT << ") and eta (" << JETETACUT << "): " << n_jetpt << std::endl;
-    std::cout << "1 lepton: " << n_nlepton << std::endl;
-    std::cout << "Lepton pT (" << LepPtCut << ") and eta (" << LepEtaCut << "): " << n_leppt << std::endl;
-    std::cout << "Jet-lepton separation (" << JetLepSepCut << "): " << n_jetlepsep << std::endl;
+    std::cout << "Jet pT < " << JETPTCUT << " and eta < " << JETETACUT << ": " << n_jetpt << std::endl;
+    std::cout << "=== Muon + jets ===" << std::endl;
+    std::cout << "Muon with pT > " << MuPtCut << " and eta < " << MuEtaCut << ": " << n_muj << std::endl;
+    std::cout << "=== Electron + jets ===" << std::endl;
+    std::cout << "Electron with pT > " << ElPtCut << " and eta < " << ElEtaCut << ": " << n_elj << std::endl;
     
 
 
