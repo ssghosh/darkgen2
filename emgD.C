@@ -19,6 +19,8 @@ R__LOAD_LIBRARY(libDelphes)
 #endif
 
 
+    // when test is set, the main loop will only look at 1% of the events
+    bool test = false;
     int idbg=0;
     float ConeSize=0.4;
     float D0SigCut=3;
@@ -62,6 +64,13 @@ R__LOAD_LIBRARY(libDelphes)
 
 struct MyPlots
 {
+    TH1 *elIso;
+    TH1 *muIso;
+    TH1 *feld0;
+    TH1 *feldz;
+    TH1 *fmud0;
+    TH1 *fmudz;
+
     TH1 *Count;
     TH1 *muCount;
     TH1 *elCount;
@@ -86,6 +95,7 @@ struct MyPlots
     TH1 *ftrkPT;
     TH1 *ftrkTH;
     TH1 *ftrkD0;
+    TH1 *ftrkDz;
     TH1 *ftrkD0Error;
     TH1 *ftrkD0sig;
     TH1 *fMissingET;
@@ -125,6 +135,34 @@ void BookHistograms(ExRootResult *result, MyPlots *plots)
     TLegend *legend;
     TPaveText *comment;
 
+    // book isolation histograms
+    plots->elIso = result->AddHist1D(
+            "elIso", "Electron IsolationVar",
+            "IsolationVar", "Number of events",
+            10, 0.0, 0.5);
+
+    plots->muIso = result->AddHist1D(
+            "muIso", "Muon IsolationVar",
+            "IsolationVar", "Number of events",
+            10, 0.0, 0.5);
+
+    // book reconstructed lepton IP histograms
+    plots->feld0 = result->AddHist1D(
+            "eld0", "Electron 2D IP",
+            "2D IP", "Number of events",
+            10, 0.0, 0.1);
+    plots->feldz = result->AddHist1D(
+            "eldz", "Electron z IP",
+            "z IP", "Number of events",
+            60, 0.0, 0.6);
+    plots->fmud0 = result->AddHist1D(
+            "mud0", "Muon 2D IP",
+            "2D IP", "Number of events",
+            10, 0.0, 0.1);
+    plots->fmudz = result->AddHist1D(
+            "mudz", "Muon z IP",
+            "z IP", "Number of events",
+            60, 0.0, 0.6);
 
     //book histograms for tracks
     plots->fnTRK = result->AddHist1D(
@@ -146,6 +184,11 @@ void BookHistograms(ExRootResult *result, MyPlots *plots)
             "track_d0", "track D_{0}",
             "track D_{0}, mm", "number of tracks",
             50, -1.0, 1.0);
+
+    plots->ftrkDz = result->AddHist1D(
+            "track_dz", "track D_{z}",
+            "track D_{z}, mm", "number of tracks",
+            25, 0.0, 1.0);
 
     plots->ftrkD0Error = result->AddHist1D(
             "track_d0Error", "track D_{0} Error",
@@ -345,11 +388,13 @@ void BookHistograms(ExRootResult *result, MyPlots *plots)
             "MuCount","MuCount","cut flow",0,0,0);
     plots->muCount->SetStats(0);
     plots->muCount->SetCanExtend(TH1::kAllAxes);
+    //plots->muCount->SetLogY();
     // electrons + jets cut flow
     plots->elCount = result->AddHist1D(
             "ElCount","ElCount","cut flow",0,0,0);
     plots->elCount->SetStats(0);
     plots->elCount->SetCanExtend(TH1::kAllAxes);
+    //plots->elCount->SetLogY();
     // cut flow
     plots->Count = result->AddHist1D(
             "Count", "Count","cut flow","number of events",0,0,0);
@@ -377,6 +422,7 @@ void BookHistograms(ExRootResult *result, MyPlots *plots)
     plots->ftrkPT->SetStats();
     plots->ftrkTH->SetStats();
     plots->ftrkD0->SetStats();
+    plots->ftrkDz->SetStats();
     plots->ftrkD0Error->SetStats();
     plots->ftrkD0sig->SetStats();
     plots->fJetAM->SetStats();
@@ -415,6 +461,8 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
     GenParticle *prt;
     GenParticle *prt2;
     GenParticle *prtT;
+    GenParticle *prtT1;
+    GenParticle *prtT2;
     Track *trk;
     Jet *jet;
     Jet *fatjet;
@@ -429,6 +477,8 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
     float dR;
 
     // Loop over all events
+    int gen_muj=0;
+    int gen_elj=0;
 
     int n_all=0;
     int n_njets=0;
@@ -448,6 +498,9 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
     Int_t non_pto_jetv = 0;
     for(entry = 0; entry < ijloop; ++entry)
     {
+        if (test && (entry % 100 != 0)) continue;
+        //std::cout << "on event number " << entry << std::endl;
+        if (entry % 1000 == 0) std::cout << entry << " events" << std::endl;
         if(idbg>0) myfile<<std::endl;
         if(idbg>0) myfile<<"event "<<entry<<std::endl;
         // Load selected branches with data from specified event
@@ -455,11 +508,13 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
 
         // Analyse gen particles
         int ngn = branchParticle->GetEntriesFast();
+        //std::cout << "gen particles: " << ngn << std::endl;
         int firstdq = -1;
         int firstadq = -1;
         int firstq = -1;
         int firstaq = -1;
         vector<int> pointtops;
+        vector<int> wsfromtops;
         for(int i=0;i<ngn;i++ ) {
             prt = (GenParticle*) branchParticle->At(i);
             int id=(prt->PID);
@@ -487,18 +542,26 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
                     std::cout<<" top at particle "<<i<<std::endl;
                     std::cout<<" daugters are particles "<<prt->D1<<" "<<prt->D2<<std::endl;
                 }
-                prtT = (GenParticle*) branchParticle->At(prt->D1);
-                int idpid1=abs(prtT->PID);
+                prtT1 = (GenParticle*) branchParticle->At(prt->D1);
+                int idpid1=abs(prtT1->PID);
                 if(idbg>0) std::cout<<"daughter 1 has pid "<<idpid1<<std::endl;
-                prtT = (GenParticle*) branchParticle->At(prt->D2);
-                int idpid2=abs(prtT->PID);
+                prtT2 = (GenParticle*) branchParticle->At(prt->D2);
+                int idpid2=abs(prtT2->PID);
                 if(idbg>0) std::cout<<"daughter 2 has pid "<<idpid2<<std::endl;
 
                 //find the one that decays to W
-                if((idpid1==24)||(idpid2==24) ) {
+                if(idpid1==24) {
                     pointtops.push_back(i);
-                    if(idbg>0) std::cout<<"choosing this top"<<std::endl;
-                }
+                    wsfromtops.push_back(prt->D1);}
+                if(idpid2==24) {
+                    pointtops.push_back(i);
+                    wsfromtops.push_back(prt->D2);}
+                //if((idpid1==24)||(idpid2==24) ) {
+                //    pointtops.push_back(i);
+                //    if(idbg>0) std::cout<<"choosing this top"<<std::endl;
+                //}
+
+                    
             }
 
         }
@@ -519,6 +582,47 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         }
 
 
+        if (wsfromtops.size() > 1) {
+            //std::cout << wsfromtops << std::endl;
+            GenParticle* w1 = (GenParticle*) branchParticle->At(wsfromtops[0]);
+            GenParticle* w2 = (GenParticle*) branchParticle->At(wsfromtops[1]);
+            GenParticle* w1_dec_prt1 = (GenParticle*) branchParticle->At(w1->D1);
+            int w1_dec_pid1 = abs(w1_dec_prt1->PID);
+            GenParticle* w1_dec_prt2 = (GenParticle*) branchParticle->At(w1->D2);
+            int w1_dec_pid2 = abs(w1_dec_prt2->PID);
+            GenParticle* w2_dec_prt1 = (GenParticle*) branchParticle->At(w2->D1);
+            int w2_dec_pid1 = abs(w2_dec_prt1->PID);
+            GenParticle* w2_dec_prt2 = (GenParticle*) branchParticle->At(w2->D2);
+            int w2_dec_pid2 = abs(w2_dec_prt2->PID);
+            //std::cout << "w1_dec_pid1: " << w1_dec_pid1 << std::endl;
+            //std::cout << "w1_dec_pid2: " << w1_dec_pid1 << std::endl;
+            //std::cout << "w2_dec_pid1: " << w1_dec_pid1 << std::endl;
+            //std::cout << "w2_dec_pid2: " << w1_dec_pid1 << std::endl;
+            if (w1_dec_pid1==11 || w1_dec_pid2==11){
+                //std::cout << "This W goes to an electron and other W goes to: " << w2_dec_pid1 << " and " << w2_dec_pid2 << std::endl;
+                if ((w2_dec_pid1 >= 1 && w2_dec_pid1 <= 8) || (w2_dec_pid2 >= 1 && w2_dec_pid2 <= 8)) {
+                    gen_elj++;
+                }
+            }
+            if (w2_dec_pid1==11 || w2_dec_pid2==11){
+                //std::cout << "This W goes to an electron and other W goes to: " << w1_dec_pid1 << " and " << w1_dec_pid2 << std::endl;
+                if ((w1_dec_pid1 >= 1 && w1_dec_pid1 <= 8) || (w1_dec_pid2 >= 1 && w1_dec_pid2 <= 8)) {
+                    gen_elj++;
+                }
+            }
+            if (w1_dec_pid1==13 || w1_dec_pid2==13){
+                //std::cout << "This W goes to a muon and other W goes to: " << w2_dec_pid1 << " and " << w2_dec_pid2 << std::endl;
+                if ((w2_dec_pid1 >= 1 && w2_dec_pid1 <= 8) || (w2_dec_pid2 >= 1 && w2_dec_pid2 <= 8)) {
+                    gen_muj++;
+                }
+            }
+            if (w2_dec_pid1==13 || w2_dec_pid2==13){
+                //std::cout << "This W goes to a muon and other W goes to: " << w1_dec_pid1 << " and " << w1_dec_pid2 << std::endl;
+                if ((w1_dec_pid1 >= 1 && w1_dec_pid1 <= 8) || (w1_dec_pid2 >= 1 && w1_dec_pid2 <= 8)) {
+                    gen_muj++;
+                }
+            }
+        }
         //make some plots about the tops in the events
         for(int i=0;i<pointtops.size();i++) {
             prt = (GenParticle*) branchParticle->At(pointtops[i]);
@@ -563,6 +667,24 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         int ntrk = branchTRK->GetEntriesFast();
         vector<float> trkTheta(ntrk);
         plots->fnTRK->Fill(ntrk);
+        Track *bestElTrack;
+        Track *bestMuTrack;
+        float leadElPhi;
+        float leadElEta;
+        float leadMuPhi;
+        float leadMuEta;
+        if (branchElectron->GetEntries() > 0) {
+            Electron *leadEl = (Electron*) branchElectron->At(0);
+            leadElPhi = leadEl->Phi;
+            leadElEta = leadEl->Eta; 
+            bestElTrack = (Track*) branchTRK->At(0); 
+        }
+        if (branchMuon->GetEntries() > 0) {
+            Muon *leadMu = (Muon*) branchMuon->At(0);
+            leadMuPhi = leadMu->Phi;
+            leadMuEta = leadMu->Eta;
+            bestMuTrack = (Track*) branchTRK->At(0); 
+        }
         for(int i=0;i<ntrk;i++ ) {
             trk = (Track*) branchTRK->At(i);
             // doing this at the generator level because I am too lazy to figure out the formulas
@@ -584,9 +706,31 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
             plots->ftrkTH->Fill(trkTheta[i]);
             plots->ftrkPT->Fill(trk->PT);
             plots->ftrkD0->Fill(trk->D0);
+            plots->ftrkDz->Fill(fabs(trk->DZ));
             plots->ftrkD0Error->Fill(fabs(trk->ErrorD0));  // for some reason, delphse pulls this from a caussian with a mean of zero, so half the time it is neg, which makes no sense to me
             //      std::cout<<"track d0 d0error "<<trk->D0<<" "<<trk->ErrorD0<<std::endl;
             if((trk->ErrorD0)>0) plots->ftrkD0sig->Fill(fabs((trk->D0)/(trk->ErrorD0)));
+
+            // associate tracks with the leading electron and/or muon
+            float trkPhi = trk->Phi;
+            float trkEta = trk->Eta;
+
+            if (branchElectron->GetEntries() > 0) {
+                float bestElTrkPhi = bestElTrack->Phi;
+                float bestElTrkEta = bestElTrack->Eta;
+                float prevElTrackDeltaR = DeltaR(leadElEta,leadElPhi,bestElTrkEta,bestElTrkPhi); 
+                float thisElTrackDeltaR = DeltaR(leadElEta,leadElPhi,trkEta,trkPhi); 
+                if (thisElTrackDeltaR < prevElTrackDeltaR) bestElTrack = trk;
+            }
+
+            if (branchMuon->GetEntries() > 0) {
+                float bestMuTrkPhi = bestMuTrack->Phi;
+                float bestMuTrkEta = bestMuTrack->Eta;
+                float prevMuTrackDeltaR = DeltaR(leadMuEta,leadMuPhi,bestMuTrkEta,bestMuTrkPhi); 
+                float thisMuTrackDeltaR = DeltaR(leadMuEta,leadMuPhi,trkEta,trkPhi); 
+                if (thisMuTrackDeltaR < prevMuTrackDeltaR) bestMuTrack = trk;
+            }
+
         }
 
 
@@ -761,6 +905,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         {
             electron = (Electron*) branchElectron->At(i);
             plots->felectronPT->Fill(electron->PT);
+            plots->elIso->Fill(electron->IsolationVar);
             nelectrons++;
         }
 
@@ -770,6 +915,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         {
             muon = (Muon*) branchMuon->At(i);
             plots->fmuonPT->Fill(muon->PT);
+            plots->muIso->Fill(muon->IsolationVar);
             nmuons++;
         }
 
@@ -857,14 +1003,28 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
         float mupt = 0;
         float mueta = 0;
         float muphi = 0;
-        if(nelectrons>=1) {
+        float eld0 = 0;
+        float eldz = 0;
+        float mud0 = 0;
+        float mudz = 0;
+        if(nelectrons>0) {
             electron = (Electron*) branchElectron->At(0);
             elpt = electron->PT;
-            eleta = electron->Eta;}
-        if(nmuons>=1) {
+            eleta = electron->Eta;
+            eld0 = bestElTrack->D0;
+            eldz = bestElTrack->DZ;
+            plots->feld0->Fill(eld0);
+            plots->feldz->Fill(eldz);
+        }
+        if(nmuons>0) {
             muon = (Muon*) branchMuon->At(0);
             mupt = muon->PT;
-            mueta = muon->Eta;}
+            mueta = muon->Eta;
+            mud0 = bestMuTrack->D0;
+            mudz = bestMuTrack->DZ;
+            plots->fmud0->Fill(mud0);
+            plots->fmudz->Fill(mudz);
+        }
         //if((elpt >= LepPtCut && eleta <= LepEtaCut) || (mupt >= LepPtCut && mueta <= LepEtaCut)) Pleppt=true;
         //if(Pleppt && Pnjet){
         //    // take the highest pT lepton
@@ -950,6 +1110,10 @@ void AnalyseEvents(ExRootTreeReader *treeReader, MyPlots *plots)
     // end main loop
     }
 
+    // print gen info:
+    std::cout << "=== Gen counts ===" << std::endl;
+    std::cout << "Mu + jets: " << gen_muj << std::endl;
+    std::cout << "Electron + jets: " << gen_elj << std::endl;
     // print cut flow:
     std::cout << "=== Cut flow ===" << std::endl;
     std::cout << "Total events: " << n_all << std::endl;
@@ -1000,6 +1164,10 @@ void emgD(const char *inputFile)
 
     plots->Count->LabelsDeflate();
     plots->Count->LabelsOption("v");
+    plots->muCount->LabelsDeflate();
+    plots->muCount->LabelsOption("d");
+    plots->elCount->LabelsDeflate();
+    plots->elCount->LabelsOption("d");
 
     PrintHistograms(result, plots);
 
